@@ -24,7 +24,7 @@ const scope = 'read:user user:email';
 const githubEndpoint = 'https://github.com/login/device/code';
 let access_token = null;
 const debugMode = true;
-access_token = "ghu_U7jxXqL0F0vIg39QX0Rj3IrS7m57EY0zEql8" // might be outdated will need to check
+// access_token = "ghu_U7jxXqL0F0vIg39QX0Rj3IrS7m57EY0zEql8" // might be outdated will need to check
 function isUrlFormat(repository) {
   const urlRegex = /^(https?:\/\/)?([^\/]+)\/([^\/]+)\/([^\/]+)\/?$/;
   return urlRegex.test(repository);
