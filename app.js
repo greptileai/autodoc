@@ -1,7 +1,7 @@
 // You installed the `dotenv` and `octokit` modules earlier. The `@octokit/webhooks` is a dependency of the `octokit` module, so you don't need to install it separately. The `fs` and `http` dependencies are built-in Node.js modules.
 import dotenv from "dotenv";
-import {App} from "octokit";
-import {createNodeMiddleware} from "@octokit/webhooks";
+import { App, Octokit } from "octokit";
+import { createNodeMiddleware } from "@octokit/webhooks";
 import fs from "fs";
 import http from "http";
 
@@ -25,83 +25,6 @@ const app = new App({
   },
 });
 
-console.log(app)
-// This defines the message that your app will post to pull requests.
-const messageForNewPRs = "Thanks for opening a new PR! Please follow our contributing guidelines to make your PR easier to review.";
-
-// This adds an event handler that your code will call later. When this event handler is called, it will log the event to the console. Then, it will use GitHub's REST API to add a comment to the pull request that triggered the event.
-async function handlePullRequestOpened({octokit, payload}) {
-  console.log(`Received a pull request event for #${payload.pull_request.number}`);
-
-  try {
-    await octokit.request("POST /repos/{owner}/{repo}/issues/{issue_number}/comments", {
-      owner: payload.repository.owner.login,
-      repo: payload.repository.name,
-      issue_number: payload.pull_request.number,
-      body: messageForNewPRs,
-      headers: {
-        "x-github-api-version": "2022-11-28",
-      },
-    });
-  } catch (error) {
-    if (error.response) {
-      console.error(`Error! Status: ${error.response.status}. Message: ${error.response.data.message}`)
-    }
-    console.error(error)
-  }
-};
-
-const messageForNewCommits = "New Push";
-
-// Add an event handler for the "push" event
-async function handlePushEvent({ octokit, payload }) {
-  console.log(`Received a push event for commit ${payload.after}`);
-
-  try {
-    // Retrieve the list of commits in the push payload
-    const commits = payload.commits;
-
-    // Log information about each commit
-    commits.forEach((commit) => {
-      console.log(`Commit by ${commit.author.name} (${commit.author.email}):`);
-      console.log(`  Message: ${commit.message}`);
-      console.log(`  SHA: ${commit.id}`);
-      console.log(`  Timestamp: ${commit.timestamp}`);
-      
-      // Log details about file changes in the commit
-      console.log("  Changes:");
-      commit.added.forEach((addedFile) => {
-        console.log(`    Added: ${addedFile}`);
-      });
-      commit.modified.forEach((modifiedFile) => {
-        console.log(`    Modified: ${modifiedFile}`);
-      });
-      commit.removed.forEach((removedFile) => {
-        console.log(`    Removed: ${removedFile}`);
-      });
-
-      console.log("---");
-    });
-
-    // Add your logic for handling new commits here, e.g., posting a comment to the repository
-    console.log(messageForNewCommits);
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-
-
-// Set up the event listener for the "push" event
-app.webhooks.on("push", handlePushEvent);
-// This sets up a webhook event listener. When your app receives a webhook event from GitHub with a `X-GitHub-Event` header value of `pull_request` and an `action` payload value of `opened`, it calls the `handlePullRequestOpened` event handler that is defined above.
-app.webhooks.on("pull_request.reopened", handlePullRequestOpened);
-
-// app.webhooks.onAny(({ id, name, payload }) => {
-//   console.log(`Received event ${name} (${id}) with payload: ${JSON.stringify(payload)}`);
-// });
-
-// This logs any errors that occur.
 app.webhooks.onError((error) => {
   if (error.name === "AggregateError") {
     console.error(`Error processing request: ${error.event}`);
@@ -118,14 +41,171 @@ const host = 'localhost';
 const path = "/webhook";
 const localWebhookUrl = `http://${host}:${port}${path}`;
 
-// This sets up a middleware function to handle incoming webhook events.
-//
-// Octokit's `createNodeMiddleware` function takes care of generating this middleware function for you. The resulting middleware function will:
-//
-//    - Check the signature of the incoming webhook event to make sure that it matches your webhook secret. This verifies that the incoming webhook event is a valid GitHub event.
-//    - Parse the webhook event payload and identify the type of event.
-//    - Trigger the corresponding webhook event handler.
-const middleware = createNodeMiddleware(app.webhooks, {path});
+
+
+const middleware = createNodeMiddleware(app.webhooks, { path });
+// const octokit = new Octokit();
+const repoOwner = "dhruv317";
+const repoName = "helicone";
+async function handleListingFolders({ octokit, payload }) {
+  async function listFilesInFolder(path) {
+    try {
+
+      // for await (const { octokit, repository } of app.eachRepository.iterator()) {
+      const result = await octokit.rest.repos.getContent({
+        owner: repoOwner,
+        repo: repoName,
+        path: path,
+      });
+      console.log(path)
+      await Promise.all(result.data.map(async (item) => {
+        if (item.type === 'file' && item.name.endsWith('.mdx')) {
+          console.log(item.path);
+        } else if (item.type === 'dir' && !item.path.startsWith('docs/node_modules')) {
+
+          await new Promise(r => setTimeout(r, 1000));
+          await listFilesInFolder(item.path);
+        }
+      }));
+
+    } catch (error) {
+      console.error(`Error reading ${path} folder: ${error.message}`);
+    }
+  }
+
+  listFilesInFolder('docs');
+}
+
+async function handleCreatingPullRequest({ octokit, payload }) {
+
+  async function createPullRequest(owner, repo, branchName, baseBranch, filePath, changes, title, body) {
+    try {
+      // Get the reference of the base branch
+      const baseRef = await octokit.rest.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${baseBranch}`,
+      });
+
+      let newBranchRef;
+      try {
+        await octokit.rest.repos.getBranch({
+          owner,
+          repo,
+          branch: branchName,
+        });
+        // const newBranchRef = await octokit.rest.git.updateRef({
+        //   owner,
+        //   repo,
+        //   ref: `heads/${branchName}`,
+        //   sha: baseRef.data.object.sha,
+        // });
+      }
+      catch (error) {
+        console.log(error)
+        const newBranchRef = await octokit.rest.git.createRef({
+          owner,
+          repo,
+          ref: `refs/heads/${branchName}`,
+          sha: baseRef.data.object.sha,
+        });
+      }
+
+      const existingFile = await octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path: filePath,
+        ref: baseBranch,
+      });
+
+      // Encode the content of the file
+      const content = Buffer.from(existingFile.data.content, 'base64').toString('utf-8');
+
+      // Make the desired changes to the file content
+      changes(content);
+
+      // Create a new blob with the updated content
+      const newBlob = await octokit.rest.git.createBlob({
+        owner,
+        repo,
+        content: Buffer.from(content).toString('base64'),
+        encoding: 'base64',
+      });
+
+      // Create a new tree with the updated blob
+      const newTree = await octokit.rest.git.createTree({
+        owner,
+        repo,
+        base_tree: baseRef.data.object.sha, // Use the SHA of the base tree
+        tree: [{
+          path: filePath,
+          mode: '100644',
+          type: 'blob',
+          sha: newBlob.data.sha,
+        }],
+      });
+
+      // Create a new commit with the updated tree
+      const newCommit = await octokit.rest.git.createCommit({
+        owner,
+        repo,
+        message: title,
+        tree: newTree.data.sha,
+        parents: [baseRef.data.object.sha],
+      });
+
+      // Update the reference of the new branch to the new commit
+      await octokit.rest.git.updateRef({
+        owner,
+        repo,
+        // ref: newBranchRef.data.ref.replace('ref/', ''),
+        ref: 'heads/random-2',
+        sha: newCommit.data.sha,
+        force: true
+      });
+
+      // Create the pull request
+      const pullRequest = await octokit.rest.pulls.create({
+        owner,
+        repo,
+        title,
+        body,
+        head: branchName,
+        base: baseBranch,
+      });
+
+      console.log("e")
+      // console.log(`Pull request created: ${pullRequest.data.html_url}`);
+    } catch (error) {
+      console.error(`Error creating pull request: ${error.message}`);
+    }
+  }
+
+
+
+  const repoOwner = 'dhruv317'; // GitHub username or organization name
+  const repoName = 'helicone'; // Name of your GitHub repository
+  function generateBranchName() {
+    const timestamp = new Date().getTime();
+    return `docs-${timestamp}`;
+  }
+  const branchName = generateBranchName();
+  const baseBranch = 'main'; // Replace with the base branch of your repository
+  const filePath = 'DIAGRAMS.md'; // Replace with the path to the file you want to modify
+  const title = 'Update DIAGRAMS.md content again';
+  const body = 'This pull request updates the content of the file.';
+  const changes = (content) => {
+    // Make your changes to the file content here
+    content += '\n// Add your modifications here';
+  };
+
+  // Call the function to create a pull request
+  if (payload.pusher.name != 'new-docwriter-app[bot]') {
+    createPullRequest(repoOwner, repoName, branchName, baseBranch, filePath, changes, title, body);
+  }
+}
+// app.webhooks.on("push", handleCreatingPullRequest);
+app.webhooks.on("push", handleListingFolders);
 
 // This creates a Node.js server that listens for incoming HTTP requests (including webhook payloads from GitHub) on the specified port. When the server receives a request, it executes the `middleware` function that you defined earlier. Once the server is running, it logs messages to the console to indicate that it is listening.
 http.createServer(middleware).listen(port, () => {
