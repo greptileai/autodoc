@@ -24,13 +24,29 @@ const scope = 'read:user user:email';
 const githubEndpoint = 'https://github.com/login/device/code';
 let access_token = null;
 const debugMode = true;
-// access_token = "ghu_U7jxXqL0F0vIg39QX0Rj3IrS7m57EY0zEql8" // might be outdated will need to check
+access_token = process.env.ACCESS_TOKEN;
+function base64ToMDX(base64Content) {
+  try {
+    // Step 1: Decode base64
+    const decodedContent = atob(base64Content);
+
+    // Step 2: Use the decoded content as MDX
+    // console.log("Decoded Content:", decodedContent);
+
+    // You can further process the decoded content or return it as is
+    return decodedContent;
+  } catch (error) {
+    console.error('Error decoding base64:', error);
+    return null;
+  }
+}
 function isUrlFormat(repository) {
   const urlRegex = /^(https?:\/\/)?([^\/]+)\/([^\/]+)\/([^\/]+)\/?$/;
   return urlRegex.test(repository);
 }
 
 async function executeAddCommand(repositoryLink) {
+
   console.log(repositoryLink)
   const parsedRepo = parseIdentifier(repositoryLink)
   console.log(typeof parsedRepo)
@@ -50,6 +66,7 @@ async function executeAddCommand(repositoryLink) {
     console.log("Error: Invalid repository name. Enter github link, e.g. https://github.com/facebook/react")
     process.exit(-1)
   }
+  const processRepo = await getRepo(repository);
   const repoInfo = await getRepoInfo(repository, remote, branch);
 
   try {
@@ -189,7 +206,7 @@ async function useChatApi(repository, userQuestion) {
   const payload = createPayload2(repository, userQuestion, session_id);
 
   if (debugMode) {
-    console.log(payload)
+    // console.log(payload)
   }
 
   let newApiUrl = 'https://y32rqryql6ccw5nqa6qvr7bfbi0tmxuc.lambda-url.us-east-1.on.aws/'
@@ -255,7 +272,7 @@ async function useChatApi(repository, userQuestion) {
 
       buffer = lines[lines.length - 1];
     }
-    console.log(fullResponse)
+    // console.log(fullResponse)
     return fullResponse;
   } catch (error) {
     if (debugMode) {
@@ -483,6 +500,9 @@ const app = new App({
 app.webhooks.onError((error) => {
   if (error.name === "AggregateError") {
     console.error(`Error processing request: ${error.event}`);
+    console.error(error)
+    console.log(JSON.toString(error.event))
+
   } else {
     console.error(error);
   }
@@ -502,13 +522,67 @@ const middleware = createNodeMiddleware(app.webhooks, { path });
 // const octokit = new Octokit();
 
 async function handleListingFolders({ octokit, payload }) {
-  // console.log(payload)
+  if (payload.pusher.name == 'new-docwriter-app[bot]') {
+    return;
+  }
+  console.log(payload)
+  const parsedRepo = parseIdentifier(payload.repository.html_url)
+
+  console.log(typeof parsedRepo)
+  console.log(parsedRepo)
+  let repository, remote, branch;
+
+  repository = parsedRepo.repository;
+  remote = parsedRepo.remote;
+  branch = parsedRepo.branch
+  let targetSha = payload.after;
+
+  console.log(repository, remote, branch)
+  const getRepoInfoResponse = await getRepo(repository, branch, remote);
+  console.log(getRepoInfoResponse)
+
+  async function checkShaEquality(repository, branch, remote, targetSha) {
+    let tries = 0;
+    let actualSha = null;
+
+    while (tries < 10) {
+      try {
+        const repoInfo = await getRepoInfo(repository, remote, branch);
+        console.log(repoInfo)
+        actualSha = repoInfo.responses[0].sha;
+
+        if (actualSha === targetSha) {
+          console.log("Sha equality achieved.");
+          return; // Exit the loop
+        }
+
+        console.log(`Actual SHA: ${actualSha}, Target SHA: ${targetSha}`);
+      } catch (error) {
+        console.error("Error occurred while fetching repository information:", error);
+      }
+
+      tries++;
+      await new Promise(resolve => setTimeout(resolve, 60000)); // Wait for 1 minute
+    }
+
+    console.error("Failed to achieve SHA equality after 10 tries.");
+  }
+
+  // Usage
+
+
+  await checkShaEquality(repository, branch, remote, targetSha);
+
+
+  // console.log(repoInfo)
   const repositoryUrl = payload.repository.html_url;
   const repoOwner = payload.repository.owner.name;
   const repoName = payload.repository.name;
   // console.log(repoOwner, repoName)
   const filesList = []
-  await executeAddCommand(repositoryUrl);
+
+
+  // await executeAddCommand(repositoryUrl);
 
   async function listFilesInFolder(path, repoOwner, repoName) {
     try {
@@ -522,12 +596,23 @@ async function handleListingFolders({ octokit, payload }) {
         if (item.type === 'file' && item.name.endsWith('.mdx')) {
           // console.log(item.path);
           console.log("file", item.path)
-          filesList.push(item.path);
+          // console.log(item)
+          let fileContent = await octokit.rest.repos.getContent({
+            owner: repoOwner,
+            repo: repoName,
+            path: item.path,
+          });
+          // console.log(fileContent)
+          fileContent = (base64ToMDX(fileContent.data.content))
+          filesList.push({ "path": item.path, "content": fileContent });
+
+
         } else if (item.type === 'dir' && !item.path.startsWith('docs/node_modules')) {
           console.log("dir", item.path)
           await new Promise(r => setTimeout(r, 1000));
           await listFilesInFolder(item.path, repoOwner, repoName);
         }
+        return Promise.resolve();
       }));
     } catch (error) {
       console.error(`Error reading ${path} folder: ${error}`);
@@ -563,29 +648,38 @@ async function handleListingFolders({ octokit, payload }) {
 
   const commits = JSON.stringify(payload.commits)
   let toAddFiles = []
-  console.log(commits)
+  // console.log(commits)
   for (const file of filesList) {
-    let prompt = "The following are the most recent commits" + commits + "/n The following is a documentation file " + file + " /n You must check if the content of the file is outdated. You should respond in teh following format: {outdated : true || false, updatedContent: string}. The updatedContent should only be filled if outdated is set to true"
+    let prompt = "The following are the most recent commits" + commits + "/n The following is a documentation file " + JSON.stringify(file) + " /n You must check if the content of the file is outdated. You should respond in teh following format: {outdated : true || false, updatedContent: string}. The updatedContent should only be filled if outdated is set to true"
+    // console.log(prompt)
     let response = await useChatApi(repositoryUrl, prompt);
-    response = JSON.parse(response)
     console.log(typeof response)
-    var keys = Object.keys(response);
-    keys.forEach(function (key) {
-      console.log(key);
-    });
+    console.log(response)
+    // response = JSON.parse(response)
+    // console.log(typeof response)
+    // var keys = Object.keys(response);
+    // keys.forEach(function (key) {
+    //   console.log(key);
+    // });
     if (response.outdated == false) {
       console.log("he")
     }
     else {
-      toAddFiles.push(response)
+      toAddFiles.push({ path: file.path, updatedContent: response.updatedContent })
     }
+
   }
+  console.log(toAddFiles)
 
-}
-
-async function handleCreatingPullRequest({ octokit, payload }) {
-
-  async function createPullRequest(owner, repo, branchName, baseBranch, filePath, changes, title, body) {
+  function generateBranchName() {
+    const timestamp = new Date().getTime();
+    return `docs-${timestamp}`;
+  }
+  const branchName = generateBranchName();
+  const baseBranch = 'main'; // Replace with the base branch of your repository
+  const title = 'Update DIAGRAMS.md content again';
+  const body = 'This pull request updates the content of the file.';
+  async function createPullRequest(owner, repo, branchName, baseBranch, toAddFiles, title, body) {
     try {
       // Get the reference of the base branch
       const baseRef = await octokit.rest.git.getRef({
@@ -618,12 +712,118 @@ async function handleCreatingPullRequest({ octokit, payload }) {
         });
       }
 
-      const existingFile = await octokit.rest.repos.getContent({
+      let newTreeContent = []
+      toAddFiles.forEach(async (file) => {
+        let newBlob = await octokit.rest.git.createBlob({
+          owner,
+          repo,
+          content: Buffer.from(file.updatedContent).toString('base64'),
+          encoding: 'base64',
+        });
+        newTreeContent.push({
+          path: file.path,
+          mode: '100644',
+          type: 'blob',
+          sha: newBlob.data.sha,
+        })
+      })
+      // Create a new tree with the updated blob
+      let newTree = await octokit.rest.git.createTree({
         owner,
         repo,
-        path: filePath,
-        ref: baseBranch,
+        base_tree: baseRef.data.object.sha, // Use the SHA of the base tree
+        tree: newTreeContent
+        // tree: [{
+        //   path: filePath,
+        //   mode: '100644',
+        //   type: 'blob',
+        //   sha: newBlob.data.sha,
+        // }],
       });
+
+      // Create a new commit with the updated tree
+      const newCommit = await octokit.rest.git.createCommit({
+        owner,
+        repo,
+        message: title,
+        tree: newTree.data.sha,
+        parents: [baseRef.data.object.sha],
+      });
+
+      // Update the reference of the new branch to the new commit
+      await octokit.rest.git.updateRef({
+        owner,
+        repo,
+        // ref: newBranchRef.data.ref.replace('ref/', ''),
+        ref: 'heads/random-2',
+        sha: newCommit.data.sha,
+        force: true
+      });
+
+      // Create the pull request
+      const pullRequest = await octokit.rest.pulls.create({
+        owner,
+        repo,
+        title,
+        body,
+        head: branchName,
+        base: baseBranch,
+      });
+
+      console.log("e")
+      console.log(`Pull request created: ${pullRequest.data.html_url}`);
+    } catch (error) {
+      console.error(`Error creating pull request: ${error.message}`);
+    }
+  }
+
+  if (payload.pusher.name != 'new-docwriter-app[bot]') {
+    createPullRequest(repoOwner, repoName, branchName, baseBranch, toAddFiles, title, body);
+  }
+
+}
+
+async function handleCreatingPullRequest({ octokit, payload }) {
+
+  async function createPullRequest(owner, repo, branchName, baseBranch, toAddFiles, title, body) {
+    try {
+      // Get the reference of the base branch
+      const baseRef = await octokit.rest.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${baseBranch}`,
+      });
+
+      let newBranchRef;
+      try {
+        await octokit.rest.repos.getBranch({
+          owner,
+          repo,
+          branch: branchName,
+        });
+        // const newBranchRef = await octokit.rest.git.updateRef({
+        //   owner,
+        //   repo,
+        //   ref: `heads/${branchName}`,
+        //   sha: baseRef.data.object.sha,
+        // });
+      }
+      catch (error) {
+        console.log(error)
+        const newBranchRef = await octokit.rest.git.createRef({
+          owner,
+          repo,
+          ref: `refs/heads/${branchName}`,
+          sha: baseRef.data.object.sha,
+        });
+      }
+
+      // const existingFile = await octokit.rest.repos.getContent({
+      //   owner,
+      //   repo,
+      //   path: filePath,
+      //   ref: baseBranch,
+      // });
 
       // Encode the content of the file
       const content = Buffer.from(existingFile.data.content, 'base64').toString('utf-8');
@@ -639,17 +839,33 @@ async function handleCreatingPullRequest({ octokit, payload }) {
         encoding: 'base64',
       });
 
-      // Create a new tree with the updated blob
-      const newTree = await octokit.rest.git.createTree({
-        owner,
-        repo,
-        base_tree: baseRef.data.object.sha, // Use the SHA of the base tree
-        tree: [{
-          path: filePath,
+      let newTreeContent = []
+      toAddFiles.forEach(async (file) => {
+        let newBlob = await octokit.rest.git.createBlob({
+          owner,
+          repo,
+          content: Buffer.from(file.updatedContent).toString('base64'),
+          encoding: 'base64',
+        });
+        newTreeContent.push({
+          path: file.path,
           mode: '100644',
           type: 'blob',
           sha: newBlob.data.sha,
-        }],
+        })
+      })
+      // Create a new tree with the updated blob
+      let newTree = await octokit.rest.git.createTree({
+        owner,
+        repo,
+        base_tree: baseRef.data.object.sha, // Use the SHA of the base tree
+        tree: newTreeContent
+        // tree: [{
+        //   path: filePath,
+        //   mode: '100644',
+        //   type: 'blob',
+        //   sha: newBlob.data.sha,
+        // }],
       });
 
       // Create a new commit with the updated tree
@@ -701,14 +917,10 @@ async function handleCreatingPullRequest({ octokit, payload }) {
   const filePath = 'DIAGRAMS.md'; // Replace with the path to the file you want to modify
   const title = 'Update DIAGRAMS.md content again';
   const body = 'This pull request updates the content of the file.';
-  const changes = (content) => {
-    // Make your changes to the file content here
-    content += '\n// Add your modifications here';
-  };
 
   // Call the function to create a pull request
   if (payload.pusher.name != 'new-docwriter-app[bot]') {
-    createPullRequest(repoOwner, repoName, branchName, baseBranch, filePath, changes, title, body);
+    createPullRequest(repoOwner, repoName, branchName, baseBranch, toAddFiles, title, body);
   }
 }
 // app.webhooks.on("push", handleCreatingPullRequest);
@@ -723,3 +935,4 @@ http.createServer(middleware).listen(port, () => {
   console.log(`Server is listening for events at: ${localWebhookUrl}`);
   console.log('Press Ctrl + C to quit.')
 });
+
