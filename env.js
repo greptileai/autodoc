@@ -8,9 +8,8 @@ const env = (() => {
   const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
   const GREPTILE_API_KEY = process.env.GREPTILE_API_KEY;
   const GREPTILE_API_URL = process.env.GREPTILE_API_URL;
-  const GREPTILE_CHAT_API_URL = process.env.GREPTILE_CHAT_API_URL;
-  if (!GREPTILE_API_URL || !GREPTILE_CHAT_API_URL) {
-    console.log('GREPTILE_API_URL and GREPTILE_CHAT_API_URL must be defined');
+  if (!GREPTILE_API_URL) {
+    console.log('GREPTILE_API_URL must be defined');
     // throw new Error('GREPTILE_API_URL and GREPTILE_CHAT_API_URL must be defined');
   }
   const GITHUB_APP_ID = parseInt(process.env.GITHUB_APP_ID || "0", 10)
@@ -48,7 +47,6 @@ const env = (() => {
     ACCESS_TOKEN, 
     GREPTILE_API_URL,
     GREPTILE_API_KEY,
-    GREPTILE_CHAT_API_URL,
     GITHUB_APP_PRIVATE_KEY,
     GITHUB_APP_ID,
     WEBHOOK_SECRET,
