@@ -31,7 +31,7 @@ async function useChatApi(repository, userQuestion) {
 
   try {
     console.log("fetching now")
-    const response = await fetch(env.GREPTILE_CHAT_API_URL, {
+    const response = await fetch(`${env.GREPTILE_API_URL}/query`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -39,60 +39,61 @@ async function useChatApi(repository, userQuestion) {
         "X-Github-Token": env.ACCESS_TOKEN,
       },
       body: JSON.stringify(payload),
-
     })
     console.log("fetching done")
     if (env.DEBUG_MODE) {
       console.log(response)
     }
-    let buffer = '';
-    const decoder = new TextDecoder();
-    let fullResponse = ""
-    for await (const chunk of response.body) {
-      const chunkText = decoder.decode(chunk);
-      buffer += chunkText;
-      const lines = buffer.split(/\r?\n/);
-      for (let i = 0; i < lines.length - 1; i++) {
-        const line = lines[i].trim();
-        if (line.length > 0) {
-          try {
-            const jsonData = JSON.parse(line);
-            if (jsonData.type == "status") {
-              if (jsonData.message == '') {
-                console.log("done")
-                // console.log(" d :, ", fullResponse)
-                // appendMessageToPayload(payload, fullResponse);
-                // process.exit(0)
-              }
-              console.log(jsonData.message)
-              if (jsonData.message == "Started processing request") {
-                // spinner.start();
-              }
-              if (jsonData.message == "Writing response") {
-                // spinner.succeed('Request processed successfully');
-              }
+    const responseJson = await response.json();
 
-            }
-            else {
-              console.log(jsonData.message)
-              if (typeof jsonData.message === 'string') {
-                fullResponse += jsonData.message;
-              }
-              // process.stdout.write(jsonData.message)
-            }
+    // let buffer = '';
+    // const decoder = new TextDecoder();
+    // let fullResponse = ""
+    // for await (const chunk of response.body) {
+    //   const chunkText = decoder.decode(chunk);
+    //   buffer += chunkText;
+    //   const lines = buffer.split(/\r?\n/);
+    //   for (let i = 0; i < lines.length - 1; i++) {
+    //     const line = lines[i].trim();
+    //     if (line.length > 0) {
+    //       try {
+    //         const jsonData = JSON.parse(line);
+    //         if (jsonData.type == "status") {
+    //           if (jsonData.message == '') {
+    //             console.log("done")
+    //             // console.log(" d :, ", fullResponse)
+    //             // appendMessageToPayload(payload, fullResponse);
+    //             // process.exit(0)
+    //           }
+    //           console.log(jsonData.message)
+    //           if (jsonData.message == "Started processing request") {
+    //             // spinner.start();
+    //           }
+    //           if (jsonData.message == "Writing response") {
+    //             // spinner.succeed('Request processed successfully');
+    //           }
 
-          } catch (error) {
-            if (env.DEBUG_MODE) {
-              console.error('Error parsing JSON:', error);
-            }
-          }
-        }
-      }
+    //         }
+    //         else {
+    //           console.log(jsonData.message)
+    //           if (typeof jsonData.message === 'string') {
+    //             fullResponse += jsonData.message;
+    //           }
+    //           // process.stdout.write(jsonData.message)
+    //         }
 
-      buffer = lines[lines.length - 1];
-    }
+    //       } catch (error) {
+    //         if (env.DEBUG_MODE) {
+    //           console.error('Error parsing JSON:', error);
+    //         }
+    //       }
+    //     }
+    //   }
+
+    //   buffer = lines[lines.length - 1];
+    // }
     // console.log(fullResponse)
-    return fullResponse;
+    return JSON.parse(responseJson.message);
   } catch (error) {
     if (env.DEBUG_MODE) {
       console.error('Error:', error.message);
@@ -176,11 +177,9 @@ async function handleListingFolders({ octokit, payload }) {
     console.error("Failed to achieve SHA equality after 10 tries.");
   }
 
-  Usage
+  // Usage
   await checkShaEquality(repository, branch, remote, targetSha);
 
-
-  console.log(repoInfo)
   const repositoryUrl = payload.repository.html_url;
   const repoOwner = payload.repository.owner.name;
   const repoName = payload.repository.name;
@@ -188,7 +187,7 @@ async function handleListingFolders({ octokit, payload }) {
   const filesList = []
 
 
-  await executeAddCommand(repositoryUrl);
+  // await executeAddCommand(repositoryUrl);
 
   async function listFilesInFolder(path, repoOwner, repoName) {
     try {
@@ -226,13 +225,14 @@ async function handleListingFolders({ octokit, payload }) {
   }
   await listFilesInFolder('fern/mdx', repoOwner, repoName);
 
-  getCommitInfo(payload.commits)
+  // getCommitInfo(payload.commits)
 
   const commits = JSON.stringify(payload.commits)
   let toAddFiles = []
   console.log(commits)
-  for (const file of filesList) {
-    let prompt = "The following are the most recent commits" + commits + "/n The following is a documentation file " + JSON.stringify(file) + " /n You must check if the content of the file is outdated. You should respond in teh following format: {outdated : true || false, updatedContent: string}. The updatedContent should only be filled if outdated is set to true"
+  // concurrenty requste 
+  const filesPromises = filesList.map(async (file) => {
+    let prompt = "The following are the most recent commits" + commits + "/n The following is a documentation file " + JSON.stringify(file) + " /n You must check if the content of the file is outdated. You should respond in the following format: {outdated : true || false, updatedContent: string}. the outdated flag should ONLY be set to true if the contents of the file is outdated and needs an update. If the content is outdated, you should provide the updated content in the updatedContent field. If the content is not outdated, you should set the updatedContent field to an empty string."
     // console.log(prompt)
     let response = await useChatApi(repositoryUrl, prompt);
     console.log(typeof response)
@@ -243,13 +243,13 @@ async function handleListingFolders({ octokit, payload }) {
     // keys.forEach(function (key) {
     //   console.log(key);
     // });
-    if (response.outdated == false) {
-      console.log("outdated")
-    }
-    else {
+    if (response && response.outdated) {
       toAddFiles.push({ path: file.path, updatedContent: response.updatedContent })
+    } else {
+      console.log('not outdated')
     }
-  }
+  })
+  await Promise.allSettled(filesPromises)
   console.log(toAddFiles)
 
   function generateBranchName() {
@@ -262,7 +262,6 @@ async function handleListingFolders({ octokit, payload }) {
   // const body = 'This pull request updates the content of the file.';
   const title = 'Update documentation';
   const body = 'This pull request updates the content of the file.';
-  
   async function createPullRequest(owner, repo, branchName, baseBranch, toAddFiles, title, body) {
     try {
       // Get the reference of the base branch
@@ -294,6 +293,11 @@ async function handleListingFolders({ octokit, payload }) {
         });
       }
 
+      if (toAddFiles.length === 0) {
+        console.log('No files to add');
+        return;
+      }
+
       let newTreeContent = []
       toAddFiles.forEach(async (file) => {
         let newBlob = await octokit.rest.git.createBlob({
@@ -309,18 +313,16 @@ async function handleListingFolders({ octokit, payload }) {
           sha: newBlob.data.sha,
         })
       })
+      if (newTreeContent.length === 0) {
+        console.log('No new tree content');
+        return;
+      }
       // Create a new tree with the updated blob
       let newTree = await octokit.rest.git.createTree({
         owner,
         repo,
         base_tree: baseRef.data.object.sha, // Use the SHA of the base tree
         tree: newTreeContent
-        // tree: [{
-        //   path: filePath,
-        //   mode: '100644',
-        //   type: 'blob',
-        //   sha: newBlob.data.sha,
-        // }],
       });
 
       // Create a new commit with the updated tree
@@ -337,10 +339,13 @@ async function handleListingFolders({ octokit, payload }) {
         owner,
         repo,
         // ref: newBranchRef.data.ref.replace('ref/', ''),
-        ref: 'heads/random-2',
+        ref: `heads/${branchName}`,
         sha: newCommit.data.sha,
         force: true
       });
+
+      if(env.DEBUG_MODE)
+        console.log('creating pull request...')
 
       // Create the pull request
       const pullRequest = await octokit.rest.pulls.create({
@@ -351,8 +356,6 @@ async function handleListingFolders({ octokit, payload }) {
         head: branchName,
         base: baseBranch,
       });
-
-      console.log("e")
       console.log(`Pull request created: ${pullRequest.data.html_url}`);
     } catch (error) {
       console.error(`Error creating pull request: ${error.message}`);
@@ -375,13 +378,13 @@ async function handleListingFolders({ octokit, payload }) {
 
 // This creates a new instance of the Octokit App class.
 
-const path = 'PATH TO KEY';
-const privateKey = fs.readFileSync(path, 'utf-8');
+// const path = 'PATH TO KEY';
+// const privateKey = fs.readFileSync(path, 'utf-8');
 
 const app = new App({
   appId: env.GITHUB_APP_ID,
-  // privateKey: env.GITHUB_APP_PRIVATE_KEY,
-  privateKey: privateKey,
+  privateKey: env.GITHUB_APP_PRIVATE_KEY,
+  // privateKey: privateKey,
   webhooks: {
     secret: env.WEBHOOK_SECRET,
   },
