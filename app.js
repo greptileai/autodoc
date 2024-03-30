@@ -9,6 +9,7 @@ import fs from "fs";
 // const configPath = path.join(currentDirectory, 'config.json');
 // const sessionPath = path.join(currentDirectory, 'session.json');
 // import fetch from 'node-fetch';
+//test
 
 import {
   createSessionId,
