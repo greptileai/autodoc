@@ -18,10 +18,8 @@ import {
   getRepo,
   getRepoInfo,
   base64ToMDX
- } from './utils.js';
+} from './utils.js';
 import env from './env.js';
-
-
 
 async function useChatApi(repository, userQuestion) {
   const session_id = createSessionId();
@@ -134,7 +132,7 @@ async function handleListingFolders({ octokit, payload }) {
   if (payload.pusher.name == 'greptile-autodoc[bot]') {
     return;
   }
-  if(env.DEBUG_MODE)
+  if (env.DEBUG_MODE)
     console.log(payload)
   const parsedRepo = parseIdentifier(payload.repository.html_url)
 
@@ -192,11 +190,23 @@ async function handleListingFolders({ octokit, payload }) {
 
   async function listFilesInFolder(path, repoOwner, repoName) {
     try {
-      const result = await octokit.rest.repos.getContent({
-        owner: repoOwner,
-        repo: repoName,
-        path: path,
-      });
+      let result;
+      if (path.startsWith('/')) {
+        path = path.slice(1); // Remove the leading slash
+        result = await octokit.rest.repos.getContent({
+          owner: repoOwner,
+          repo: repoName,
+          path: path,
+        });
+      } else {
+        let [docRepoOwner, docRepoName] = path.split('/');
+        result = await octokit.rest.repos.getContent({
+          owner: docRepoOwner,
+          repo: docRepoName,
+          path: '',
+        })
+      }
+
       console.log(path)
       await Promise.all(result.data.map(async (item) => {
         if (item.type === 'file' && item.name.endsWith('.mdx')) {
@@ -206,12 +216,11 @@ async function handleListingFolders({ octokit, payload }) {
           let fileContent = await octokit.rest.repos.getContent({
             owner: repoOwner,
             repo: repoName,
-            path: item.path,
+            path: item.path
           });
           // console.log(fileContent)
           fileContent = (base64ToMDX(fileContent.data.content))
           filesList.push({ "path": item.path, "content": fileContent });
-
 
         } else if (item.type === 'dir' && !item.path.startsWith('docs/node_modules')) {
           console.log("dir", item.path)
@@ -224,7 +233,32 @@ async function handleListingFolders({ octokit, payload }) {
       console.error(`Error reading ${path} error: ${error}`);
     }
   }
-  await listFilesInFolder('fern/mdx', repoOwner, repoName);
+
+  function getDocFolder(repoOwner, repoName) {
+    try {
+      // Read the JSON file
+      const jsonData = fs.readFileSync('your_json_file.json');
+      const docArray = JSON.parse(jsonData).docArray;
+
+      // Construct the key to search for
+      const repoKey = `${repoOwner}/${repoName}`;
+
+      // Search for the repository in the docArray
+      for (const doc of docArray) {
+        if (repoKey in doc) {
+          return doc[repoKey];
+        }
+      }
+
+      // If repository not found, throw an error
+      throw new Error(`Repository ${repoKey} not found in the JSON file.`);
+    } catch (error) {
+      console.error('Error:', error.message);
+      throw error;
+    }
+  }
+  let docFolder = getDocFolder()
+  await listFilesInFolder(docFolder, repoOwner, repoName);
 
   // getCommitInfo(payload.commits)
 
@@ -345,7 +379,7 @@ async function handleListingFolders({ octokit, payload }) {
         force: true
       });
 
-      if(env.DEBUG_MODE)
+      if (env.DEBUG_MODE)
         console.log('creating pull request...')
 
       // Create the pull request
@@ -423,7 +457,7 @@ http.createServer((req, res) => {
       res.statusCode = 404
       res.end('no such location')
     })
-  
+
   }
 }).listen(env.PORT, () => {
   console.log(`Server is listening for events at port: ${env.PORT}`);
