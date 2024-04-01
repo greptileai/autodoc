@@ -1,6 +1,8 @@
-import { Base64 } from 'js-base64';
+import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb';
 
 import env from './env.js';
+
+const dynamodb = new DynamoDBClient({ region: 'us-east-1' });
 
 export function base64ToMDX(base64Content) {
   try {
@@ -18,7 +20,7 @@ export function base64ToMDX(base64Content) {
   }
 }
 
-export async function getRepo(repo, branch = "main", remote = "github") {
+export async function getRepo(repo, branch = "main", remote = "github", token = undefined) {
   try {
     const body = JSON.stringify({
       "remote": remote, // one of "github", "gitlab" for now
@@ -32,8 +34,8 @@ export async function getRepo(repo, branch = "main", remote = "github") {
       body: body,
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + getAccessToken(),
-        "X-Github-Token": env.ACCESS_TOKEN, 
+        "Authorization": "Bearer " + env.GREPTILE_API_KEY,
+        "X-Github-Token": token,
       },
     });
 
@@ -47,13 +49,13 @@ export async function getRepo(repo, branch = "main", remote = "github") {
   }
 }
 
-export async function getRepoInfo(repo, remote, branch) {
+export async function getRepoInfo(repo, remote, branch, token=undefined) {
   const repoInfo = await fetch(`${env.GREPTILE_API_URL}/repositories/${encodeURIComponent(`${remote}:${branch}:${repo}`)}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": "Bearer " + getAccessToken(),
-      "X-Github-Token": env.ACCESS_TOKEN,
+      "Authorization": "Bearer " + env.GREPTILE_API_KEY,
+      "X-Github-Token": token,
     },
   });
 
@@ -160,38 +162,76 @@ export function parseIdentifier(input) {
   }
 };
 
-export function getAccessToken() {
-  return env.GREPTILE_API_KEY
-  // try {
-  //   const configFile = fs.readFileSync(configPath, 'utf-8');
-  //   const configFileData = JSON.parse(configFile)
+export function createPayload(repo, payloadContent, external = false) {
+  const parsedRepo = parseIdentifier(repo);
 
-  //   if (configFileData.github.access_token != null) {
-  //     access_token = configFileData.github.access_token
-  //     return access_token;
-  //   }
-  //   else {
-  //     return null;
-  //   }
-  // } catch (error) {
-  //   if (env.DEBUG_MODE) {
-  //     console.log(error)
-  //   }
-  //   return {};
-  // }
+  const payload = {
+    messages: [
+      {
+        id: '1',
+        role: "user",
+        content: payloadContent
+      }
+    ],
+    repositories: [
+      {
+        remote: parsedRepo.remote,
+        repository: parsedRepo.repository,
+        branch: parsedRepo.branch,
+        name: parsedRepo.repository,
+        external: external,
+      }
+    ],
+    jsonMode: true
+  };
+
+  return payload;
 }
 
-export function createSessionId() {
-  return Math.random().toString(36).substring(2, 15) +
-    Math.random().toString(36).substring(2, 15);
-}
+export async function useChatApi(repository, userQuestion, token=undefined) {
+  const payload = createPayload(repository, userQuestion);
+  if (env.DEBUG_MODE)
+    console.log(payload)
+  try {
+    console.time("useChatApi")
+    const response = await fetch(`${env.GREPTILE_API_URL}/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        "Authorization": "Bearer " + env.GREPTILE_API_KEY,
+        "X-Github-Token": token,
+      },
+      body: JSON.stringify(payload),
+    })
+    console.timeEnd("useChatApi")
+    if (env.DEBUG_MODE) {
+      console.log(response)
+    }
+    const responseJson = await response.json();
 
-function getBase64(remote, repository, branch) {
-  let repo = remote + ":" + repository + ":" + branch;
-  if (env.DEBUG_MODE) {
-    console.log(repo)
+    return JSON.parse(responseJson.message);
+  } catch (error) {
+    if (env.DEBUG_MODE) {
+      console.error('Error:', error.message);
+    }
   }
-  return (Base64.encode(repo))
+}
+
+export async function getToken(ownerEmail) {
+  const params = {
+    TableName: env.USERS_TABLE_NAME,
+    Key: {
+      'email': { S: ownerEmail },
+    },
+  };
+
+  try {
+    const data = await dynamodb.send(new GetItemCommand(params));
+    return data.Item?.tokens?.M?.github?.M?.accessToken?.S;
+  } catch (err) {
+    console.error(err);
+    return undefined
+  }
 }
 
 function serializeRepoKey(repoKey) {

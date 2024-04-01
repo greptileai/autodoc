@@ -12,120 +12,14 @@ import fs from "fs";
 //test
 
 import {
-  createSessionId,
-  getAccessToken,
   parseIdentifier,
   getRepo,
   getRepoInfo,
-  base64ToMDX
+  getToken,
+  base64ToMDX,
+  useChatApi
 } from './utils.js';
 import env from './env.js';
-
-async function useChatApi(repository, userQuestion) {
-  const session_id = createSessionId();
-  const payload = createPayload2(repository, userQuestion, session_id);
-
-  if (env.DEBUG_MODE)
-    console.log(payload)
-
-  try {
-    console.log("fetching now")
-    const response = await fetch(`${env.GREPTILE_API_URL}/query`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        "Authorization": "Bearer " + getAccessToken(),
-        "X-Github-Token": env.ACCESS_TOKEN,
-      },
-      body: JSON.stringify(payload),
-    })
-    console.log("fetching done")
-    if (env.DEBUG_MODE) {
-      console.log(response)
-    }
-    const responseJson = await response.json();
-
-    // let buffer = '';
-    // const decoder = new TextDecoder();
-    // let fullResponse = ""
-    // for await (const chunk of response.body) {
-    //   const chunkText = decoder.decode(chunk);
-    //   buffer += chunkText;
-    //   const lines = buffer.split(/\r?\n/);
-    //   for (let i = 0; i < lines.length - 1; i++) {
-    //     const line = lines[i].trim();
-    //     if (line.length > 0) {
-    //       try {
-    //         const jsonData = JSON.parse(line);
-    //         if (jsonData.type == "status") {
-    //           if (jsonData.message == '') {
-    //             console.log("done")
-    //             // console.log(" d :, ", fullResponse)
-    //             // appendMessageToPayload(payload, fullResponse);
-    //             // process.exit(0)
-    //           }
-    //           console.log(jsonData.message)
-    //           if (jsonData.message == "Started processing request") {
-    //             // spinner.start();
-    //           }
-    //           if (jsonData.message == "Writing response") {
-    //             // spinner.succeed('Request processed successfully');
-    //           }
-
-    //         }
-    //         else {
-    //           console.log(jsonData.message)
-    //           if (typeof jsonData.message === 'string') {
-    //             fullResponse += jsonData.message;
-    //           }
-    //           // process.stdout.write(jsonData.message)
-    //         }
-
-    //       } catch (error) {
-    //         if (env.DEBUG_MODE) {
-    //           console.error('Error parsing JSON:', error);
-    //         }
-    //       }
-    //     }
-    //   }
-
-    //   buffer = lines[lines.length - 1];
-    // }
-    // console.log(fullResponse)
-    return JSON.parse(responseJson.message);
-  } catch (error) {
-    if (env.DEBUG_MODE) {
-      console.error('Error:', error.message);
-    }
-  }
-}
-
-function createPayload2(repo, payloadContent, session_id, external = false) {
-  const parsedRepo = parseIdentifier(repo);
-
-  const payload = {
-    messages: [
-      {
-        id: '1',
-        role: "user",
-        content: payloadContent
-      }
-    ],
-    repositories: [
-      {
-        remote: parsedRepo.remote,
-        repository: parsedRepo.repository,
-        branch: parsedRepo.branch,
-        name: parsedRepo.repository,
-        external: external,
-      }
-    ],
-    sessionId: session_id,
-    jsonMode: true
-  };
-
-  return payload;
-}
 
 async function handleListingFolders({ octokit, payload }) {
   console.log("payload pusher", payload.pusher.name)
@@ -135,6 +29,39 @@ async function handleListingFolders({ octokit, payload }) {
   if (env.DEBUG_MODE)
     console.log(payload)
   const parsedRepo = parseIdentifier(payload.repository.html_url)
+
+  const repositoryUrl = payload.repository.html_url;
+  const repoOwner = payload.repository.owner.name;
+  const repoName = payload.repository.name;
+
+  function getDocMetadata(repoOwner, repoName) {
+    try {
+      // Read the JSON file
+      const jsonData = fs.readFileSync(env.USERS_JSON_FILE, 'utf8');
+      const docArray = JSON.parse(jsonData);
+      // Construct the key to search for
+      const repoKey = `${repoOwner}/${repoName}`;
+
+      // Search for the repository in the docArray
+      for (const doc of docArray) {
+        if (repoKey in doc) {
+          return doc[repoKey];
+        }
+      }
+
+      // If repository not found, throw an error
+      throw new Error(`Repository ${repoKey} not found in the JSON file.`);
+    } catch (error) {
+      console.error('Error:', error.message);
+      throw error;
+    }
+  }
+  let {
+    docFolder,
+    ownerEmail,
+  } = getDocMetadata(repoOwner, repoName);
+
+  const token = getToken(ownerEmail);
 
   console.log(typeof parsedRepo)
   console.log(parsedRepo)
@@ -146,16 +73,16 @@ async function handleListingFolders({ octokit, payload }) {
   let targetSha = payload.after;
 
   console.log(repository, remote, branch)
-  const getRepoInfoResponse = await getRepo(repository, branch, remote);
+  const getRepoInfoResponse = await getRepo(repository, branch, remote, token);
   console.log(getRepoInfoResponse)
 
-  async function checkShaEquality(repository, branch, remote, targetSha) {
+  async function checkShaEquality(repository, branch, remote, targetSha, token=undefined) {
     let tries = 0;
     let actualSha = null;
-
+    // TODO fix this to actually wait properly
     while (tries < 30) {
       try {
-        const repoInfo = await getRepoInfo(repository, remote, branch);
+        const repoInfo = await getRepoInfo(repository, remote, branch, token);
         console.log(repoInfo)
         actualSha = repoInfo.sha;
 
@@ -177,11 +104,8 @@ async function handleListingFolders({ octokit, payload }) {
   }
 
   // Usage
-  await checkShaEquality(repository, branch, remote, targetSha);
+  await checkShaEquality(repository, branch, remote, targetSha, token);
 
-  const repositoryUrl = payload.repository.html_url;
-  const repoOwner = payload.repository.owner.name;
-  const repoName = payload.repository.name;
   // console.log(repoOwner, repoName)
   const filesList = []
 
@@ -234,31 +158,7 @@ async function handleListingFolders({ octokit, payload }) {
     }
   }
 
-  function getDocFolder(repoOwner, repoName) {
-    try {
-      // Read the JSON file
-      const jsonData = fs.readFileSync('your_json_file.json');
-      const docArray = JSON.parse(jsonData).docArray;
-
-      // Construct the key to search for
-      const repoKey = `${repoOwner}/${repoName}`;
-
-      // Search for the repository in the docArray
-      for (const doc of docArray) {
-        if (repoKey in doc) {
-          return doc[repoKey];
-        }
-      }
-
-      // If repository not found, throw an error
-      throw new Error(`Repository ${repoKey} not found in the JSON file.`);
-    } catch (error) {
-      console.error('Error:', error.message);
-      throw error;
-    }
-  }
-  let docFolder = getDocFolder()
-  await listFilesInFolder(docFolder, repoOwner, repoName);
+  await listFilesInFolder(docFolder, repoOwner, repoName, ownerEmail);
 
   // getCommitInfo(payload.commits)
 
@@ -269,7 +169,7 @@ async function handleListingFolders({ octokit, payload }) {
   const filesPromises = filesList.map(async (file) => {
     let prompt = "The following are the most recent commits" + commits + "/n The following is a documentation file " + JSON.stringify(file) + " /n You must check if the content of the file is outdated. You should respond in the following format: {outdated : true || false, updatedContent: string}. the outdated flag should ONLY be set to true if the contents of the file is outdated and needs an update. If the content is outdated, you should provide the updated content in the updatedContent field. If the content is not outdated, you should set the updatedContent field to an empty string."
     // console.log(prompt)
-    let response = await useChatApi(repositoryUrl, prompt);
+    let response = await useChatApi(repositoryUrl, prompt, token);
     console.log(typeof response)
     console.log(response)
     // response = JSON.parse(response)
@@ -311,12 +211,6 @@ async function handleListingFolders({ octokit, payload }) {
           repo,
           branch: branchName,
         });
-        // const newBranchRef = await octokit.rest.git.updateRef({
-        //   owner,
-        //   repo,
-        //   ref: `heads/${branchName}`,
-        //   sha: baseRef.data.object.sha,
-        // });
       }
       catch (error) {
         console.log(error)
@@ -402,20 +296,6 @@ async function handleListingFolders({ octokit, payload }) {
   }
 }
 
-
-// // This reads your `.env` file and adds the variables from that file to the `process.env` object in Node.js.
-
-// // This determines where your server will listen.
-// //
-// // For local development, your server will listen to port 3000 on `localhost`. When you deploy your app, you will change these values. For more information, see "[Deploy your app](#deploy-your-app)."
-
-// This reads the contents of your private key file.
-
-// This creates a new instance of the Octokit App class.
-
-// const path = 'PATH TO KEY';
-// const privateKey = fs.readFileSync(path, 'utf-8');
-
 const app = new App({
   appId: env.GITHUB_APP_ID,
   privateKey: env.GITHUB_APP_PRIVATE_KEY,
@@ -440,13 +320,10 @@ app.webhooks.onError((error) => {
 // app.webhooks.on("push", handleCreatingPullRequest);
 app.webhooks.on("push", handleListingFolders); // THIS ONE
 
-
-
 // async function callGreptile(repository, heading) {
 //   await useChatApi("Write Internal Documentation for the Following Heading: " + heading);
 // }
 
-// // This creates a Node.js server that listens for incoming HTTP requests (including webhook payloads from GitHub) on the specified port. When the server receives a request, it executes the `middleware` function that you defined earlier. Once the server is running, it logs messages to the console to indicate that it is listening.
 http.createServer((req, res) => {
   if (req.url === '/' && req.method === 'GET') { // need health check for aws ecs
     res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -461,5 +338,4 @@ http.createServer((req, res) => {
   }
 }).listen(env.PORT, () => {
   console.log(`Server is listening for events at port: ${env.PORT}`);
-  // console.log('Press Ctrl + C to quit.')
 });

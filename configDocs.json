@@ -1,7 +1,9 @@
-{
-    "docArray": [
-        {
-            "superagent/superagent": "/fern/mdx"
+[
+    {
+        "superagent/superagent": {
+            "docFolder": "/fern/mdx",
+            "ownerEmail": ""
         }
-    ]
-}
+    }
+]
+
