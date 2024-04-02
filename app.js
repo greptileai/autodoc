@@ -59,7 +59,7 @@ async function handleListingFolders({ octokit, payload }) {
       throw error;
     }
   }
-  let {
+  const {
     docFolder,
     ownerEmail,
   } = getDocMetadata(repoOwner, repoName);
@@ -159,7 +159,7 @@ async function handleListingFolders({ octokit, payload }) {
           // console.log("dir", item.path)
           logger.info("dir", { dir: item.path })
           await new Promise(r => setTimeout(r, 1000));
-          await listFilesInFolder(item.path, repoOwner, repoName);
+          await listFilesInFolder(`/${item.path}`, repoOwner, repoName);
         }
         return Promise.resolve();
       }));
