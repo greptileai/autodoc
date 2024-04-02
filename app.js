@@ -211,29 +211,6 @@ async function handleListingFolders({ octokit, payload }) {
   const body = 'Greptile Autodoc recommends updating the following documentation files. Please review the changes and merge the pull request.';
   async function createPullRequest(owner, repo, branchName, baseBranch, toAddFiles, title, body) {
     try {
-      // Get the reference of the base branch
-      const baseRef = await octokit.rest.git.getRef({
-        owner,
-        repo,
-        ref: `heads/${baseBranch}`,
-      });
-      try {
-        await octokit.rest.repos.getBranch({
-          owner,
-          repo,
-          branch: branchName,
-        });
-      }
-      catch (error) {
-        // console.log(error)
-        logger.error('error getting branch, creating...', { error })
-        await octokit.rest.git.createRef({
-          owner,
-          repo,
-          ref: `refs/heads/${branchName}`,
-          sha: baseRef.data.object.sha,
-        });
-      }
 
       if (toAddFiles.length === 0) {
         // console.log('No files to add');
@@ -266,6 +243,32 @@ async function handleListingFolders({ octokit, payload }) {
         // console.log('No new tree content');
         return;
       }
+      // only attempt to create a branch if there are files to add
+      // Get the reference of the base branch
+      const baseRef = await octokit.rest.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${baseBranch}`,
+      });
+
+      try {
+        await octokit.rest.repos.getBranch({
+          owner,
+          repo,
+          branch: branchName,
+        });
+      }
+      catch (error) {
+        // console.log(error)
+        logger.error('error getting branch, creating...', { error })
+        await octokit.rest.git.createRef({
+          owner,
+          repo,
+          ref: `refs/heads/${branchName}`,
+          sha: baseRef.data.object.sha,
+        });
+      }
+
       // Create a new tree with the updated blob
       let newTree = await octokit.rest.git.createTree({
         owner,
