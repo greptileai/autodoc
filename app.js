@@ -178,7 +178,8 @@ async function handleListingFolders({ octokit, payload }) {
   logger.info("commits", { commits })
   // concurrenty requste 
   const filesPromises = filesList.map(async (file) => {
-    let prompt = "The following are the most recent commits" + commits + "/n The following is a documentation file " + JSON.stringify(file) + " /n You must check if the content of the file is outdated. You should respond in the following format: {outdated : true || false, updatedContent: string}. the outdated flag should ONLY be set to true if the contents of the file is outdated and needs an update. If the content is outdated, you should provide the updated content in the updatedContent field. If the content is not outdated, you should set the updatedContent field to an empty string."
+    const prompt = `Take a look at the following commits to the git repository, and the documentation file below, and tell me if the doc file needs to be updated. The following are the most recent commits: ${commits}\n\nThis is the documentation file, called \`${file.path}\`:\n\`\`\`\`\`\n${file.updatedContent}\n\`\`\`\`\`\n\nYou must check if the content of the doc file is outdated based on the changes described above. You can also refer to the added and modified files described in the commits above. You MUST respond with JSON in the following format: {outdated: Boolean, updatedContent: String}. The \`outdated\` flag should ONLY be set to true if the contents of the file are outdated and need to be updated (only include changes needed to actual content, not formatting). If the contents are outdated, you should provide a proposed new version of the file in the updatedContent field. If the \`outdated\` flag is true, there should be meaningful changes to the docs. If the content is not outdated, updatedContent should be an empty string.`
+
     // console.log(prompt)
     let response = await useChatApi(repositoryUrl, prompt, token);
     // console.log(typeof response)
