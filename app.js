@@ -152,7 +152,7 @@ async function handleListingFolders({ octokit, payload }) {
           });
           // console.log(fileContent)
           fileContent = (base64ToMDX(fileContent.data.content))
-          filesList.push({ "path": item.path, "content": fileContent });
+          filesList.push({ path: item.path, content: fileContent });
 
         } else if (item.type === 'dir' && !item.path.startsWith('docs/node_modules')) {
           // console.log("dir", item.path)
@@ -178,28 +178,31 @@ async function handleListingFolders({ octokit, payload }) {
   logger.info("commits", { commits })
   // concurrenty requste 
   const filesPromises = filesList.map(async (file) => {
-    const prompt = `Take a look at the following commits to the git repository, and the documentation file below, and tell me if the doc file needs to be updated. The following are the most recent commits: ${commits}\n\nThis is the documentation file, called \`${file.path}\`:\n\`\`\`\`\`\n${file.updatedContent}\n\`\`\`\`\`\n\nYou must check if the content of the doc file is outdated based on the changes described above. You can also refer to the added and modified files described in the commits above. You MUST respond with JSON in the following format: {outdated: Boolean, updatedContent: String}. The \`outdated\` flag should ONLY be set to true if the contents of the file are outdated and need to be updated (only include changes needed to actual content, not formatting). If the contents are outdated, you should provide a proposed new version of the file in the updatedContent field. If the \`outdated\` flag is true, there should be meaningful changes to the docs. If the content is not outdated, updatedContent should be an empty string.`
-
-    // console.log(prompt)
-    let response = await useChatApi(repositoryUrl, prompt, token);
-    // console.log(typeof response)
-    // console.log(response)
-    logger.info("response", { response })
-    // response = JSON.parse(response)
-    // console.log(typeof response)
-    // var keys = Object.keys(response);
-    // keys.forEach(function (key) {
-    //   console.log(key);
-    // });
-    if (response && response.outdated) {
-      toAddFiles.push({ path: file.path, updatedContent: response.updatedContent })
-    } else {
-      // console.log('not outdated')
-      logger.info('not outdated')
+    const prompt = `You are going to determine if a doc page of a codebase has to be updated. Take a look at the following commits to the git repository, the provided relevant files, and the documentation file below to tell me if the doc file needs to be updated. The following are the most recent commits: ${commits}\n\nThis is the documentation file, called \`${file.path}\`:\n\`\`\`\`\`\n${file.content}\n\`\`\`\`\`\n\n You can also refer to the provided potentially relevant files from the repository. You must check if the content of the doc file is outdated based on the changes described above. You MUST respond with JSON in the following format: {outdated: Boolean, updatedContent: String}. The \`outdated\` flag should ONLY be set to true if the contents of the file are outdated and need to be updated (only include changes needed to actual content, not formatting). If the contents are outdated, you should provide a proposed new version of the file in the updatedContent field. If the \`outdated\` flag is true, there should be meaningful changes to the docs. If the content is not outdated, updatedContent should be an empty string.`
+    try {
+      let response = await useChatApi(repositoryUrl, prompt, token);
+      // console.log(typeof response)
+      // console.log(response)
+      logger.info("response", { file, response })
+      // response = JSON.parse(response)
+      // console.log(typeof response)
+      // var keys = Object.keys(response);
+      // keys.forEach(function (key) {
+      //   console.log(key);
+      // });
+      if (response && response.outdated) {
+        toAddFiles.push({ path: file.path, updatedContent: response.updatedContent })
+      } else {
+        // console.log('not outdated')
+        logger.info('not outdated')
+      }
+    } catch (error) {
+      logger.error(`Error in useChatApi: ${error.message}`);
+      // console.error(`Error in useChatApi: ${error.message}`);
     }
+    
   })
   await Promise.allSettled(filesPromises)
-  console.log(toAddFiles)
 
   function generateBranchName() {
     const timestamp = new Date().getTime();
@@ -212,11 +215,12 @@ async function handleListingFolders({ octokit, payload }) {
   const body = 'Greptile Autodoc recommends updating the following documentation files. Please review the changes and merge the pull request.';
   async function createPullRequest(owner, repo, branchName, baseBranch, toAddFiles, title, body) {
     try {
-
       if (toAddFiles.length === 0) {
         // console.log('No files to add');
         logger.info('No files to add')
         return;
+      } else {
+        logger.info("files to add", { toAddFiles })
       }
 
       let newTreeContent = []
@@ -344,6 +348,7 @@ app.webhooks.onError((error) => {
   } else {
     // console.error(error);
     logger.error('weird error from webhook (toplevel)', error)
+    logger.error(error)
   }
 });
 // app.webhooks.on("push", handleCreatingPullRequest);
