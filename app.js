@@ -144,7 +144,7 @@ async function handleListingFolders({ octokit, payload }) {
         if (item.type === 'file' && item.name.endsWith('.mdx')) {
           // console.log(item.path);
           // console.log("file", item.path)
-          logger.info("file", { item.path })
+          logger.info("file", { file: item.path })
           // console.log(item)
           let fileContent = await octokit.rest.repos.getContent({
             owner: repoOwner,
@@ -157,7 +157,7 @@ async function handleListingFolders({ octokit, payload }) {
 
         } else if (item.type === 'dir' && !item.path.startsWith('docs/node_modules')) {
           // console.log("dir", item.path)
-          logger.info("dir", { item.path })
+          logger.info("dir", { dir: item.path })
           await new Promise(r => setTimeout(r, 1000));
           await listFilesInFolder(item.path, repoOwner, repoName);
         }
