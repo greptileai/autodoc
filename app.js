@@ -209,8 +209,8 @@ async function handleListingFolders({ octokit, payload }) {
   const baseBranch = 'main'; // Replace with the base branch of your repository
   // const title = 'Update DIAGRAMS.md content again';
   // const body = 'This pull request updates the content of the file.';
-  const title = 'Update documentation';
-  const body = 'This pull request updates the content of the file.';
+  const title = '[Greptile Autodoc] Update documentation';
+  const body = 'Greptile Autodoc recommends updating the following documentation files. Please review the changes and merge the pull request.';
   async function createPullRequest(owner, repo, branchName, baseBranch, toAddFiles, title, body) {
     try {
       // Get the reference of the base branch
