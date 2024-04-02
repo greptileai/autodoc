@@ -36,6 +36,7 @@ async function handleListingFolders({ octokit, payload }) {
   const repositoryUrl = payload.repository.html_url;
   const repoOwner = payload.repository.owner.name;
   const repoName = payload.repository.name;
+  const baseBranch = payload.repository.default_branch;
 
   function getDocMetadata(repoOwner, repoName) {
     try {
@@ -115,8 +116,6 @@ async function handleListingFolders({ octokit, payload }) {
 
   // console.log(repoOwner, repoName)
   const filesList = []
-
-
   // await executeAddCommand(repositoryUrl);
 
   async function listFilesInFolder(path, repoOwner, repoName) {
@@ -203,10 +202,9 @@ async function handleListingFolders({ octokit, payload }) {
 
   function generateBranchName() {
     const timestamp = new Date().getTime();
-    return `docs-${timestamp}`;
+    return `greptile-autodoc-${timestamp}`;
   }
   const branchName = generateBranchName();
-  const baseBranch = 'main'; // Replace with the base branch of your repository
   // const title = 'Update DIAGRAMS.md content again';
   // const body = 'This pull request updates the content of the file.';
   const title = '[Greptile Autodoc] Update documentation';
@@ -244,13 +242,15 @@ async function handleListingFolders({ octokit, payload }) {
       }
 
       let newTreeContent = []
-      toAddFiles.forEach(async (file) => {
+      let promise = toAddFiles.map(async (file) => {
         let newBlob = await octokit.rest.git.createBlob({
           owner,
           repo,
           content: Buffer.from(file.updatedContent).toString('base64'),
           encoding: 'base64',
         });
+        if(env.DEBUG_MODE) 
+          logger.info('newBlob', { path: file.path, sha: newBlob.data.sha })
         newTreeContent.push({
           path: file.path,
           mode: '100644',
@@ -258,6 +258,9 @@ async function handleListingFolders({ octokit, payload }) {
           sha: newBlob.data.sha,
         })
       })
+
+      await Promise.allSettled(promise)
+      
       if (newTreeContent.length === 0) {
         logger.info('No new tree content')
         // console.log('No new tree content');
