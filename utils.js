@@ -1,5 +1,6 @@
 import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb';
 
+import logger from './logger.js';
 import env from './env.js';
 
 const dynamodb = new DynamoDBClient({ region: 'us-east-1' });
@@ -15,12 +16,15 @@ export function base64ToMDX(base64Content) {
     // You can further process the decoded content or return it as is
     return decodedContent;
   } catch (error) {
-    console.error('Error decoding base64:', error);
+    // console.error('Error decoding base64:', error);
+    logger.error('Error decoding base64:', error);
     return null;
   }
 }
 
 export async function getRepo(repo, branch = "main", remote = "github", token = undefined) {
+  // console.log('getRepo', repo, branch, remote, token)
+  logger.info('getRepo', repo, branch, remote)
   try {
     const body = JSON.stringify({
       "remote": remote, // one of "github", "gitlab" for now
@@ -43,13 +47,16 @@ export async function getRepo(repo, branch = "main", remote = "github", token = 
     return repoInfoJson;
   } catch (error) {
     if (env.DEBUG_MODE) {
-      console.log("Error:", error);
+      // console.log("Error:", error);
+      logger.error("Error:", error);
     }
     return null;
   }
 }
 
 export async function getRepoInfo(repo, remote, branch, token=undefined) {
+  // console.log('getRepoInfo', repo, remote, branch, token)
+  logger.info('getRepoInfo', repo, remote, branch)
   const repoInfo = await fetch(`${env.GREPTILE_API_URL}/repositories/${encodeURIComponent(`${remote}:${branch}:${repo}`)}`, {
     method: "GET",
     headers: {
@@ -65,7 +72,8 @@ export async function getRepoInfo(repo, remote, branch, token=undefined) {
 }
 
 export function parseIdentifier(input) {
-  console.log(input)
+  // console.log(input)
+  logger.info('parseIdentifier', input)
   if (!isDomain(input)) {
     const regex = /^(([^:]*):([^:]*):|[^:]*)([^:]*)$/;
     const match = input.match(regex);
@@ -191,7 +199,8 @@ export function createPayload(repo, payloadContent, external = false) {
 export async function useChatApi(repository, userQuestion, token=undefined) {
   const payload = createPayload(repository, userQuestion);
   if (env.DEBUG_MODE)
-    console.log(payload)
+    logger.info('useChatApi (payload)', { payload })
+    // console.log(payload)
   try {
     console.time("useChatApi")
     const response = await fetch(`${env.GREPTILE_API_URL}/query`, {
@@ -205,14 +214,16 @@ export async function useChatApi(repository, userQuestion, token=undefined) {
     })
     console.timeEnd("useChatApi")
     if (env.DEBUG_MODE) {
-      console.log(response)
+      logger.info('useChatApi (response)', { response })
+      // console.log(response)
     }
     const responseJson = await response.json();
 
     return JSON.parse(responseJson.message);
   } catch (error) {
     if (env.DEBUG_MODE) {
-      console.error('Error:', error.message);
+      // console.error('Error:', error.message);
+      logger.error('Error:', error.message);
     }
   }
 }
@@ -224,12 +235,14 @@ export async function getToken(ownerEmail) {
       'email': { S: ownerEmail },
     },
   };
-
   try {
     const data = await dynamodb.send(new GetItemCommand(params));
-    return data.Item?.tokens?.M?.github?.M?.accessToken?.S;
+    const token = data.Item?.tokens?.M?.github?.M?.accessToken?.S;
+    // console.log(token)
+    return token;
   } catch (err) {
-    console.error(err);
+    // console.error(err);
+    logger.error('error getting token', err);
     return undefined
   }
 }

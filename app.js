@@ -19,15 +19,18 @@ import {
   base64ToMDX,
   useChatApi
 } from './utils.js';
+import logger from './logger.js';
 import env from './env.js';
 
 async function handleListingFolders({ octokit, payload }) {
-  console.log("payload pusher", payload.pusher.name)
+  // console.log("payload pusher", payload.pusher.name)
+  logger.info("payload pusher", payload.pusher.name)
   if (payload.pusher.name == 'greptile-autodoc[bot]') {
     return;
   }
   if (env.DEBUG_MODE)
-    console.log(payload)
+    logger.info('payload', { payload })
+    // console.log(payload)
   const parsedRepo = parseIdentifier(payload.repository.html_url)
 
   const repositoryUrl = payload.repository.html_url;
@@ -61,46 +64,50 @@ async function handleListingFolders({ octokit, payload }) {
     ownerEmail,
   } = getDocMetadata(repoOwner, repoName);
 
-  const token = getToken(ownerEmail);
+  const token = await getToken(ownerEmail);
 
-  console.log(typeof parsedRepo)
-  console.log(parsedRepo)
+  // console.log(parsedRepo)
+  logger.info("parsedRepo", { parsedRepo })
   let repository, remote, branch;
 
   repository = parsedRepo.repository;
   remote = parsedRepo.remote;
   branch = parsedRepo.branch
   let targetSha = payload.after;
-
-  console.log(repository, remote, branch)
   const getRepoInfoResponse = await getRepo(repository, branch, remote, token);
-  console.log(getRepoInfoResponse)
+  // console.log('getRepoInfoResponse:', getRepoInfoResponse)
+  logger.info("getRepoInfoResponse", { getRepoInfoResponse })
 
-  async function checkShaEquality(repository, branch, remote, targetSha, token=undefined) {
+  async function checkShaEquality(repository, branch, remote, targetSha, token) {
     let tries = 0;
     let actualSha = null;
     // TODO fix this to actually wait properly
     while (tries < 30) {
       try {
         const repoInfo = await getRepoInfo(repository, remote, branch, token);
-        console.log(repoInfo)
+        // console.log(repoInfo)
+        logger.info("repoInfo", { repoInfo })
         actualSha = repoInfo.sha;
 
         if (actualSha === targetSha) {
-          console.log("Sha equality achieved.");
+          // console.log("Sha equality achieved.");
+          logger.info("Sha equality achieved.")
           return; // Exit the loop
         }
 
-        console.log(`Actual SHA: ${actualSha}, Target SHA: ${targetSha}`);
+        // console.log(`Actual SHA: ${actualSha}, Target SHA: ${targetSha}`);
+        logger.info(`Actual SHA: ${actualSha}, Target SHA: ${targetSha}`);
       } catch (error) {
-        console.error("Error occurred while fetching repository information:", error);
+        // console.error("Error occurred while fetching repository information:", error);
+        logger.error("Error occurred while fetching repository information:", error);
       }
 
       tries++;
       await new Promise(resolve => setTimeout(resolve, 60000)); // Wait for 1 minute
     }
 
-    console.error("Failed to achieve SHA equality after 10 tries.");
+    // console.error("Failed to achieve SHA equality after 10 tries.");
+    logger.error("Failed to achieve SHA equality after 30 tries.");
   }
 
   // Usage
@@ -131,11 +138,13 @@ async function handleListingFolders({ octokit, payload }) {
         })
       }
 
-      console.log(path)
+      // console.log(path)
+      logger.info("path", { path })
       await Promise.all(result.data.map(async (item) => {
         if (item.type === 'file' && item.name.endsWith('.mdx')) {
           // console.log(item.path);
-          console.log("file", item.path)
+          // console.log("file", item.path)
+          logger.info("file", { item.path })
           // console.log(item)
           let fileContent = await octokit.rest.repos.getContent({
             owner: repoOwner,
@@ -147,14 +156,16 @@ async function handleListingFolders({ octokit, payload }) {
           filesList.push({ "path": item.path, "content": fileContent });
 
         } else if (item.type === 'dir' && !item.path.startsWith('docs/node_modules')) {
-          console.log("dir", item.path)
+          // console.log("dir", item.path)
+          logger.info("dir", { item.path })
           await new Promise(r => setTimeout(r, 1000));
           await listFilesInFolder(item.path, repoOwner, repoName);
         }
         return Promise.resolve();
       }));
     } catch (error) {
-      console.error(`Error reading ${path} error: ${error}`);
+      // console.error(`Error reading ${path} error: ${error}`);
+      logger.error(`Error reading ${path} error: ${error}`);
     }
   }
 
@@ -164,14 +175,16 @@ async function handleListingFolders({ octokit, payload }) {
 
   const commits = JSON.stringify(payload.commits)
   let toAddFiles = []
-  console.log(commits)
+  // console.log(commits)
+  logger.info("commits", { commits })
   // concurrenty requste 
   const filesPromises = filesList.map(async (file) => {
     let prompt = "The following are the most recent commits" + commits + "/n The following is a documentation file " + JSON.stringify(file) + " /n You must check if the content of the file is outdated. You should respond in the following format: {outdated : true || false, updatedContent: string}. the outdated flag should ONLY be set to true if the contents of the file is outdated and needs an update. If the content is outdated, you should provide the updated content in the updatedContent field. If the content is not outdated, you should set the updatedContent field to an empty string."
     // console.log(prompt)
     let response = await useChatApi(repositoryUrl, prompt, token);
-    console.log(typeof response)
-    console.log(response)
+    // console.log(typeof response)
+    // console.log(response)
+    logger.info("response", { response })
     // response = JSON.parse(response)
     // console.log(typeof response)
     // var keys = Object.keys(response);
@@ -181,7 +194,8 @@ async function handleListingFolders({ octokit, payload }) {
     if (response && response.outdated) {
       toAddFiles.push({ path: file.path, updatedContent: response.updatedContent })
     } else {
-      console.log('not outdated')
+      // console.log('not outdated')
+      logger.info('not outdated')
     }
   })
   await Promise.allSettled(filesPromises)
@@ -213,7 +227,8 @@ async function handleListingFolders({ octokit, payload }) {
         });
       }
       catch (error) {
-        console.log(error)
+        // console.log(error)
+        logger.error('error getting branch, creating...', { error })
         await octokit.rest.git.createRef({
           owner,
           repo,
@@ -223,7 +238,8 @@ async function handleListingFolders({ octokit, payload }) {
       }
 
       if (toAddFiles.length === 0) {
-        console.log('No files to add');
+        // console.log('No files to add');
+        logger.info('No files to add')
         return;
       }
 
@@ -243,7 +259,8 @@ async function handleListingFolders({ octokit, payload }) {
         })
       })
       if (newTreeContent.length === 0) {
-        console.log('No new tree content');
+        logger.info('No new tree content')
+        // console.log('No new tree content');
         return;
       }
       // Create a new tree with the updated blob
@@ -274,7 +291,8 @@ async function handleListingFolders({ octokit, payload }) {
       });
 
       if (env.DEBUG_MODE)
-        console.log('creating pull request...')
+        logger.info('creating pull request...')
+        // console.log('creating pull request...')
 
       // Create the pull request
       const pullRequest = await octokit.rest.pulls.create({
@@ -285,9 +303,11 @@ async function handleListingFolders({ octokit, payload }) {
         head: branchName,
         base: baseBranch,
       });
-      console.log(`Pull request created: ${pullRequest.data.html_url}`);
+      logger.info(`Pull request created: ${pullRequest.data.html_url}`)
+      // console.log(`Pull request created: ${pullRequest.data.html_url}`);
     } catch (error) {
-      console.error(`Error creating pull request: ${error.message}`);
+      logger.error(`Error creating pull request: ${error.message}`);
+      // console.error(`Error creating pull request: ${error.message}`);
     }
   }
 
@@ -309,17 +329,18 @@ const middleware = createNodeMiddleware(app.webhooks, { path: env.WEBHOOK_PATH }
 
 app.webhooks.onError((error) => {
   if (error.name === "AggregateError") {
-    console.error(`Error processing request: ${error.event}`);
-    console.error(error)
-    console.log(JSON.toString(error.event))
-
+    // console.error(`Error processing request: ${error.event}`);
+    // console.error(error)
+    // console.log(JSON.toString(error.event))
+    logger.error(`Error processing request: ${error.event}`);
+    logger.error(error)
   } else {
-    console.error(error);
+    // console.error(error);
+    logger.error('weird error from webhook (toplevel)', error)
   }
 });
 // app.webhooks.on("push", handleCreatingPullRequest);
 app.webhooks.on("push", handleListingFolders); // THIS ONE
-
 // async function callGreptile(repository, heading) {
 //   await useChatApi("Write Internal Documentation for the Following Heading: " + heading);
 // }
@@ -330,7 +351,8 @@ http.createServer((req, res) => {
     res.end(JSON.stringify({ status: 'Healthy' }))
   } else {
     middleware(req, res, async (error) => {
-      console.log(error)
+      // console.log(error)
+      logger.error('weird error from webhook (middleware)', error)
       res.statusCode = 404
       res.end('no such location')
     })

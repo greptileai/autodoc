@@ -14,7 +14,9 @@
     "@aws-sdk/client-dynamodb": "^3.540.0",
     "dotenv": "^16.0.3",
     "js-base64": "^3.7.7",
-    "octokit": "^3.1.2"
+    "octokit": "^3.1.2",
+    "winston": "^3.13.0",
+    "winston-cloudwatch": "^6.2.0"
   },
   "devDependencies": {
     "smee-client": "^1.2.3"
