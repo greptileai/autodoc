@@ -178,12 +178,14 @@ async function handleListingFolders({ octokit, payload }) {
   logger.info("commits", { commits })
   // concurrenty requste 
   const filesPromises = filesList.map(async (file) => {
-    const prompt = `You are going to determine if a doc page of a codebase has to be updated. Take a look at the following commits to the git repository, the provided relevant files, and the documentation file below to tell me if the doc file needs to be updated. The following are the most recent commits: ${commits}\n\nThis is the documentation file, called \`${file.path}\`:\n\`\`\`\`\`\n${file.content}\n\`\`\`\`\`\n\n You can also refer to the provided potentially relevant files from the repository. You must check if the content of the doc file is outdated based on the changes described above. If the documentation is not implemented, try and create a basic skeleton for the documentation based on some of the other documentation files you see. You MUST respond with JSON in the following format: {outdated: Boolean, updatedContent: String}. The \`outdated\` flag should ONLY be set to true if the contents of the file are outdated and need to be updated (only include changes needed to actual content, not formatting). If the contents are outdated, you should provide a proposed new version of the file in the updatedContent field. If the \`outdated\` flag is true, there should be meaningful changes to the docs. If the content is not outdated, updatedContent should be an empty string.`
+    const prompt = `You are going to determine if a doc page of a codebase has to be updated. Take a look at the following commits to the git repository, the provided relevant files, and the documentation file below to tell me if the doc file needs to be updated. The following are the most recent commits: ${commits}\n\nThis is the documentation file, called \`${file.path}\`:\n\`\`\`\`\`\n${file.content}\n\`\`\`\`\`\n\n You can also refer to the provided potentially relevant files from the repository. You must check if the content of the doc file is outdated based on the changes described above. If the documentation is not implemented, try and create a basic skeleton for the documentation based on some of the other documentation files you see. You MUST respond with JSON in the following format: {outdated: Boolean, updatedContent: String}. The \`outdated\` flag should ONLY be set to true if the contents of the file are outdated and need to be updated (only include changes needed to actual content, not formatting). If the contents are outdated, you should provide a proposed new version of the FULL file in the updatedContent field. If the \`outdated\` flag is true, there should be meaningful changes to the docs. If the content is not outdated, updatedContent should be an empty string.`
     try {
-      let response = await useChatApi(repositoryUrl, prompt, token);
+      let responseJson = await useChatApi(repositoryUrl, prompt, token);
+      const response = JSON.parse(responseJson.message)
+
       // console.log(typeof response)
       // console.log(response)
-      logger.info("response", { file, response })
+      logger.info("response", { file, message: response, sources: responseJson.sources })
       // response = JSON.parse(response)
       // console.log(typeof response)
       // var keys = Object.keys(response);

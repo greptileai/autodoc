@@ -202,7 +202,6 @@ export async function useChatApi(repository, userQuestion, token=undefined) {
     logger.info('useChatApi (payload)', { payload })
     // console.log(payload)
   try {
-    console.time("useChatApi")
     const response = await fetch(`${env.GREPTILE_API_URL}/query`, {
       method: 'POST',
       headers: {
@@ -212,14 +211,12 @@ export async function useChatApi(repository, userQuestion, token=undefined) {
       },
       body: JSON.stringify(payload),
     })
-    console.timeEnd("useChatApi")
     if (env.DEBUG_MODE) {
       logger.info('useChatApi (response)', { response })
       // console.log(response)
     }
     const responseJson = await response.json();
-
-    return JSON.parse(responseJson.message);
+    return responseJson;
   } catch (error) {
     if (env.DEBUG_MODE) {
       // console.error('Error:', error.message);
